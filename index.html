@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Kanban Board</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* A little extra style for the card being dragged */
+        .dragging {
+            opacity: 0.5;
+            transform: rotate(3deg);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        }
+        /* Custom scrollbar for a cleaner look */
+        .tasks-container::-webkit-scrollbar {
+            width: 8px;
+        }
+        .tasks-container::-webkit-scrollbar-track {
+            background: rgba(0,0,0,0.1);
+            border-radius: 10px;
+        }
+        .tasks-container::-webkit-scrollbar-thumb {
+            background: rgba(0,0,0,0.3);
+            border-radius: 10px;
+        }
+        .tasks-container::-webkit-scrollbar-thumb:hover {
+            background: rgba(0,0,0,0.4);
+        }
+    </style>
+</head>
+<body class="bg-slate-100 font-sans p-4 md:p-8">
+
+    <div class="max-w-screen-2xl mx-auto">
+        <h1 class="text-3xl font-bold text-slate-800 mb-6">Project Kanban Board</h1>
+        
+        <div id="kanban-board" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
+            <!-- Columns will be injected here by JavaScript -->
+        </div>
+    </div>
+
+    <script>
+    // Raw TSV data provided by the user
+    const tsvData = `Taaknaam;Bucketnaam;Voortgang;Prioriteit;Beschrijving
+Checken afspraken Feetneeds door Stein / Everhard;Stuck;Wordt uitgevoerd;Gemiddeld;
+Communicatie plan Stakeholders;To do;Niet gestart;Gemiddeld;"Betrekken KCO, via Pascal\\nMaandelijkse log update o.i.d."
+Linken power BI dashboard Planner;Backlog;Niet gestart;Gemiddeld;
+Tekst onder zolen;Stuck;Wordt uitgevoerd;Gemiddeld;
+Plan van aanpak Productie opschalen;Stuck;Wordt uitgevoerd;Gemiddeld;"Uitgangspunt: Alles wat we met SLIM kunnen maken moeten we ook kunnen printen.\\n\\n- Wat zijn we niet aan het printen?\\n\\n    - Wat kunnen we niet?\\n\\n        - Hoe weten we wat we niet kunnen?\\n\\n            - Spelregels / Paulien brief\\n            - Analyse laatste jaar zolen tov printer capaciteit\\n        - Hoe vaak komen die dingen voor?\\n        - Hoe kunnen we dat oplossen?\\n        - Wat is de prioriteit?\\n    - Wat doen we niet?\\n\\n        - Hoe weten we wat we niet doen?\\n\\n            - Lodewijk vragen overzicht te maken van alle orders betrokken therapeuten sinds pilot.\\n\\n                - Deze afzetten tegen wat we niet kunnen / spelregels / brief\\n        - Waarom doen we dat niet\\n        - Hoe kunnen we dat oplossen?\\n        - Wat is de prioriteit?"
+Printer Tests Bjorn;Doing;Wordt uitgevoerd;Gemiddeld;
+2 hardheden in een zool;Done;Voltooid;Gemiddeld;aantonen dat de FeedNeeds printers dit hanteren
+Capaciteit pilot bepalen;Done;Voltooid;Gemiddeld;
+Opstarten Pilot (Strategisch Stein);Done;Voltooid;Gemiddeld;
+Spelregels pilot doorlopen;Done;Voltooid;Gemiddeld;
+Feetneeds printers up and running;Done;Voltooid;Belangrijk;
+Eigen printers - afhaal systemen onderzoek;Doing;Wordt uitgevoerd;Gemiddeld;
+Herdefinieëren spelregels pilot n.a.v. onderzoke;Doing;Wordt uitgevoerd;Gemiddeld;
+toetsings criteria opstellen materiaal;Backlog;Niet gestart;Gemiddeld;
+toetsings criteria opstellen printers;Backlog;Niet gestart;Gemiddeld;
+Opzetten producttesten lab setting;To do;Niet gestart;Gemiddeld;materiaal testen opzetten om de zolen te toetsen op materiaaleigenschappen
+Voron nieuwe kop Bjorn;Doing;Wordt uitgevoerd;Gemiddeld;
+Zolen via SLIM ontvangen van Jeroen / Bas;To do;Niet gestart;Gemiddeld;
+Printen zolen behandelaren Pilot;Done;Voltooid;Gemiddeld;
+Opstarten Pilot (Operationeel Paulien);Done;Voltooid;Gemiddeld;
++0.5mm print dikte slicer;Done;Voltooid;Gemiddeld;`;
+
+    // Define columns in the desired order and their properties
+    const columns = {
+        "Backlog": { title: "Backlog", color: "bg-amber-200", textColor: "text-amber-800" },
+        "To do": { title: "To Do", color: "bg-rose-200", textColor: "text-rose-800" },
+        "Doing": { title: "Doing", color: "bg-sky-200", textColor: "text-sky-800" },
+        "Stuck": { title: "Stuck", color: "bg-red-200", textColor: "text-red-800" },
+        "Done": { title: "Done", color: "bg-green-200", textColor: "text-green-800" }
+    };
+
+    function parseTsv(tsv) {
+        // Split data into lines, trim whitespace, and filter out empty lines
+        const lines = tsv.trim().split('\n').map(l => l.trim()).filter(Boolean);
+        if (lines.length < 2) return [];
+
+        const headers = lines[0].split(';').map(h => h.trim());
+        const data = [];
+
+        for (let i = 1; i < lines.length; i++) {
+            // A simple regex to handle quoted fields that might contain the delimiter
+            const values = lines[i].split(/;(?=(?:[^"]*"[^"]*")*[^"]*$)/).map(v => v.trim().replace(/^"|"$/g, ''));
+            const obj = {};
+            headers.forEach((header, index) => {
+                obj[header] = values[index] || '';
+            });
+            data.push(obj);
+        }
+        return data;
+    }
+
+    function createKanbanBoard() {
+        const board = document.getElementById('kanban-board');
+        const tasks = parseTsv(tsvData);
+
+        // Create the column elements
+        Object.keys(columns).forEach(key => {
+            const columnInfo = columns[key];
+            const columnId = `column-${key.toLowerCase().replace(' ', '-')}`;
+            
+            const columnEl = document.createElement('div');
+            columnEl.id = columnId;
+            columnEl.className = `kanban-column ${columnInfo.color} rounded-xl p-4 flex flex-col`;
+            
+            columnEl.innerHTML = `
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-lg font-bold ${columnInfo.textColor}">${columnInfo.title}</h2>
+                    <span id="${columnId}-count" class="text-sm font-semibold ${columnInfo.textColor} bg-white/60 rounded-full px-3 py-1">0</span>
+                </div>
+                <div class="tasks-container flex-grow space-y-4 overflow-y-auto pr-2" style="max-height: 70vh;">
+                    <!-- Tasks for this column go here -->
+                </div>
+            `;
+            board.appendChild(columnEl);
+        });
+
+        // Populate tasks into columns
+        tasks.forEach((task, index) => {
+            const bucketName = task.Bucketnaam;
+            const columnKey = Object.keys(columns).find(k => k.toLowerCase() === bucketName.toLowerCase());
+            
+            if (!columnKey) {
+                console.warn(`Skipping task with unknown bucket: "${bucketName}"`, task);
+                return;
+            }
+
+            const columnId = `column-${columnKey.toLowerCase().replace(' ', '-')}`;
+            const columnTasksContainer = document.querySelector(`#${columnId} .tasks-container`);
+
+            if (columnTasksContainer) {
+                const card = document.createElement('div');
+                card.id = `task-${index}`;
+                card.className = 'task-card bg-white/80 p-4 rounded-lg shadow cursor-grab active:cursor-grabbing';
+                card.draggable = true;
+
+                // Priority visualization
+                let priorityHtml = '';
+                if (task.Prioriteit) {
+                    const isImportant = task.Prioriteit.toLowerCase() === 'belangrijk';
+                    const tagColor = isImportant ? 'text-red-700 bg-red-100' : 'text-yellow-700 bg-yellow-100';
+                    const dotColor = isImportant ? 'bg-red-500' : 'bg-yellow-500';
+                    priorityHtml = `
+                        <span class="flex items-center gap-1.5 font-medium px-2 py-0.5 rounded-full ${tagColor}">
+                            <span class="h-2 w-2 rounded-full ${dotColor}"></span>
+                            ${task.Prioriteit}
+                        </span>`;
+                }
+                
+                // Description formatting
+                const descriptionHtml = task.Beschrijving 
+                    ? `<p class="mt-2 text-xs text-slate-600 border-t pt-2 whitespace-pre-wrap">${task.Beschrijving.replace(/\\n/g, '<br>')}</p>` 
+                    : '';
+
+                card.innerHTML = `
+                    <p class="font-semibold text-slate-800">${task.Taaknaam || 'Untitled Task'}</p>
+                    <div class="mt-3 flex justify-between items-center text-sm text-slate-600">
+                        <span>${task.Voortgang || ''}</span>
+                        ${priorityHtml}
+                    </div>
+                    ${descriptionHtml}
+                `;
+                
+                columnTasksContainer.appendChild(card);
+            }
+        });
+        
+        setupDragAndDrop();
+        updateTaskCounts();
+    }
+
+    function updateTaskCounts() {
+        document.querySelectorAll('.kanban-column').forEach(column => {
+            const count = column.querySelectorAll('.task-card').length;
+            const countEl = column.querySelector(`#${column.id}-count`);
+            if (countEl) {
+                countEl.textContent = count;
+            }
+        });
+    }
+
+    function setupDragAndDrop() {
+        const cards = document.querySelectorAll('.task-card');
+        const columns = document.querySelectorAll('.tasks-container');
+
+        cards.forEach(card => {
+            card.addEventListener('dragstart', () => {
+                setTimeout(() => card.classList.add('dragging'), 0);
+            });
+            card.addEventListener('dragend', () => {
+                card.classList.remove('dragging');
+                updateTaskCounts();
+            });
+        });
+
+        columns.forEach(column => {
+            column.addEventListener('dragover', e => {
+                e.preventDefault();
+                const draggingCard = document.querySelector('.dragging');
+                if (draggingCard) {
+                    const afterElement = getDragAfterElement(column, e.clientY);
+                    if (afterElement == null) {
+                        column.appendChild(draggingCard);
+                    } else {
+                        column.insertBefore(draggingCard, afterElement);
+                    }
+                }
+            });
+        });
+    }
+    
+    // Helper function to find where to drop the card within a list
+    function getDragAfterElement(container, y) {
+        const draggableElements = [...container.querySelectorAll('.task-card:not(.dragging)')];
+        return draggableElements.reduce((closest, child) => {
+            const box = child.getBoundingClientRect();
+            const offset = y - box.top - box.height / 2;
+            if (offset < 0 && offset > closest.offset) {
+                return { offset: offset, element: child };
+            } else {
+                return closest;
+            }
+        }, { offset: Number.NEGATIVE_INFINITY }).element;
+    }
+
+
+    // Initialize the board when the page loads
+    document.addEventListener('DOMContentLoaded', createKanbanBoard);
+    </script>
+
+</body>
+</html>
+
